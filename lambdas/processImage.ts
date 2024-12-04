@@ -8,12 +8,21 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+
+const ddbDocClient = DynamoDBDocumentClient.from(
+  new DynamoDBClient({ region: "eu-west-1" })
+);
+
+const TABLE_NAME = "ImageTable";
+
 const s3 = new S3Client();
 
 export const handler: SQSHandler = async (event) => {
   console.log("Event ", JSON.stringify(event));
   for (const record of event.Records) {
-    const recordBody = JSON.parse(record.body);        // Parse SQS message
+    const recordBody = JSON.parse(record.body); // Parse SQS message
     const snsMessage = JSON.parse(recordBody.Message); // Parse SNS message
 
     if (snsMessage.Records) {
@@ -24,22 +33,30 @@ export const handler: SQSHandler = async (event) => {
         // Object key may have spaces or unicode non-ASCII characters.
         const srcKey = decodeURIComponent(s3e.object.key.replace(/\+/g, " "));
 
-        if (!srcKey.endsWith(".jpeg") && !srcKey.endsWith(".png")) {
-          console.error(`Application only processes ‘.jpeg’ or ‘.png’ images`);
-          throw new Error("Unsupported file type");
-        }
-
-        let origimage = null;
         try {
-          // Download the image from the S3 source bucket.
+          if (!srcKey.endsWith(".jpeg") && !srcKey.endsWith(".png")) {
+            console.error(`File type must be JPEG or PNG for file`);
+            throw new Error("Unsupported file type");
+          }
+
           const params: GetObjectCommandInput = {
             Bucket: srcBucket,
             Key: srcKey,
           };
-          origimage = await s3.send(new GetObjectCommand(params));
-          // Process the image ......
+          await s3.send(new GetObjectCommand(params));
+          console.log(`File successfully downloaded.`);
+
+          await ddbDocClient.send(
+            new PutCommand({
+              TableName: TABLE_NAME,
+              Item: {
+                FileName: srcKey, //primary key
+              },
+            })
+          );
+          console.log(`File ${srcKey} added to DynamoDB.`);
         } catch (error) {
-          console.log(error);
+          console.error(`Error processing file ${srcKey}:`, error);
         }
       }
     }

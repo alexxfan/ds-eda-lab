@@ -20,24 +20,33 @@ type ContactDetails = {
 
 const client = new SESClient({ region: SES_REGION});
 
-export const handler: SQSHandler = async (event: any) => {
+export const handler: SQSHandler = async (event) => {
     console.log("DLQ Event: ", JSON.stringify(event));
+  
     for (const record of event.Records) {
       const recordBody = JSON.parse(record.body);
   
       try {
+        const snsMessage = JSON.parse(recordBody.Message);
+        const s3Event = snsMessage?.Records?.[0]?.s3;
+        const srcKey = decodeURIComponent(s3Event?.object?.key || "Unknown file");
+  
+        if (srcKey.endsWith(".jpeg") || srcKey.endsWith(".png")) {
+          console.log(`File type ${srcKey} is valid and should not be in DLQ.`);
+          continue;
+        }
+    
         const { name, email, message }: ContactDetails = {
           name: "File Rejection",
           email: SES_EMAIL_FROM,
-          message: `Your image upload was rejected. Rejection message details: ${JSON.stringify(
-            recordBody
-          )}`,
+          message: `Your file was rejected because it is not a supported format. Please upload a JPEG or PNG file.`,
         };
+  
         const params = sendEmailParams({ name, email, message });
         await client.send(new SendEmailCommand(params));
-        console.log("Image rejection email sent successfully.");
-      } catch (error: unknown) {
-        console.log("ERROR is: ", error);
+        console.log(`Rejection email sent successfully for file: ${srcKey}`);
+      } catch (error) {
+        console.error("Error processing DLQ message: ", error);
       }
     }
   };
@@ -53,10 +62,10 @@ function sendEmailParams({ name, email, message }: ContactDetails) {
           Charset: "UTF-8",
           Data: getHtmlContent({ name, email, message }),
         },
-        Text: {          // For demo purposes
-          Charset: "UTF-8",
-          Data: getTextContent({ name, email, message }),
-        },
+        // Text: {          // For demo purposes
+        //   Charset: "UTF-8",
+        //   Data: getTextContent({ name, email, message }),
+        // },
       },
       Subject: {
         Charset: "UTF-8",
