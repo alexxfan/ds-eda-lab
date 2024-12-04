@@ -34,12 +34,12 @@ export const handler: SQSHandler = async (event: any) => {
         // Object key may have spaces or unicode non-ASCII characters.
         const srcKey = decodeURIComponent(s3e.object.key.replace(/\+/g, " "));
 
-        if (!srcKey.endsWith(".jpeg") && !srcKey.endsWith(".png")) {
-          console.error(`Invalid file type for file: ${srcKey}`);
-          throw new Error("Unsupported file type");
-        }
 
         try {
+          if (!srcKey.endsWith(".jpeg") && !srcKey.endsWith(".png")) {
+            console.error(`Invalid file type for file: ${srcKey}`);
+            throw new Error("Unsupported file type");
+          }
           const { name, email, message }: ContactDetails = {
             name: "The Photo Album",
             email: SES_EMAIL_FROM,

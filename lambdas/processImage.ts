@@ -15,8 +15,6 @@ const ddbDocClient = DynamoDBDocumentClient.from(
   new DynamoDBClient({ region: "eu-west-1" })
 );
 
-const TABLE_NAME = "ImageTable";
-
 const s3 = new S3Client();
 
 export const handler: SQSHandler = async (event) => {
@@ -30,13 +28,12 @@ export const handler: SQSHandler = async (event) => {
       for (const messageRecord of snsMessage.Records) {
         const s3e = messageRecord.s3;
         const srcBucket = s3e.bucket.name;
-        // Object key may have spaces or unicode non-ASCII characters.
         const srcKey = decodeURIComponent(s3e.object.key.replace(/\+/g, " "));
 
         try {
           if (!srcKey.endsWith(".jpeg") && !srcKey.endsWith(".png")) {
-            console.error(`File type must be JPEG or PNG for file`);
-            throw new Error("Unsupported file type");
+            console.error(`Unsupported file type: ${srcKey}`);
+            throw new Error("Unsupported file type"); 
           }
 
           const params: GetObjectCommandInput = {
@@ -44,19 +41,20 @@ export const handler: SQSHandler = async (event) => {
             Key: srcKey,
           };
           await s3.send(new GetObjectCommand(params));
-          console.log(`File successfully downloaded.`);
+          console.log(`File downloaded.`);
 
           await ddbDocClient.send(
             new PutCommand({
-              TableName: TABLE_NAME,
+              TableName: "ImageTable",
               Item: {
                 FileName: srcKey, //primary key
               },
             })
           );
-          console.log(`File ${srcKey} added to DynamoDB.`);
+          console.log(`File ${srcKey} successfully added to ImageTable.`);
         } catch (error) {
           console.error(`Error processing file ${srcKey}:`, error);
+          throw error;
         }
       }
     }
