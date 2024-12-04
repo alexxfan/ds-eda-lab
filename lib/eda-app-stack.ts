@@ -24,8 +24,16 @@ export class EDAAppStack extends cdk.Stack {
 
     // Integration infrastructure
 
+    const deadLetterQueue = new sqs.Queue(this, "BadImageQueue", {
+      queueName: "ImageDeadLetterQueue",
+    });
+
     const imageProcessQueue = new sqs.Queue(this, "img-created-queue", {
       receiveMessageWaitTime: cdk.Duration.seconds(10),
+      deadLetterQueue: {
+        queue: deadLetterQueue,
+        maxReceiveCount: 1, // Messages are moved to DLQ after 1 failed attempt
+      },
     });
 
     const newImageTopic = new sns.Topic(this, "NewImageTopic", {
@@ -35,6 +43,8 @@ export class EDAAppStack extends cdk.Stack {
     const mailerQ = new sqs.Queue(this, "mailer-queue", {
       receiveMessageWaitTime: cdk.Duration.seconds(10),
     });
+
+
 
     // Lambda functions
 
