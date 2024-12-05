@@ -1,4 +1,4 @@
-import { SQSHandler } from "aws-lambda";
+import { SQSHandler, DynamoDBStreamHandler } from "aws-lambda";
 import { SES_EMAIL_FROM, SES_EMAIL_TO, SES_REGION } from "../env";
 import {
   SESClient,
@@ -6,7 +6,9 @@ import {
   SendEmailCommandInput,
 } from "@aws-sdk/client-ses";
 
-if (!SES_EMAIL_TO || !SES_EMAIL_FROM || !SES_REGION) {
+const BUCKET_NAME = process.env.BUCKET_NAME!; 
+
+if (!SES_EMAIL_TO || !SES_EMAIL_FROM || !SES_REGION || !BUCKET_NAME) {
   throw new Error(
     "Please add the SES_EMAIL_TO, SES_EMAIL_FROM and SES_REGION environment variables in an env.js file located in the root directory"
   );
@@ -20,37 +22,27 @@ type ContactDetails = {
 
 const client = new SESClient({ region: SES_REGION});
 
-export const handler: SQSHandler = async (event: any) => {
-  console.log("Event ", JSON.stringify(event));
+
+//uses dynamodb stream instead of sns message
+export const handler: DynamoDBStreamHandler = async (event) => {
+  console.log("DynamoDB Stream Event: ", JSON.stringify(event));
+
   for (const record of event.Records) {
-    const recordBody = JSON.parse(record.body);
-    const snsMessage = JSON.parse(recordBody.Message);
+    if (record.eventName === "INSERT") { 
+      const newImage = record.dynamodb?.NewImage; //get  image from DynamoDB stream
+      const fileName = newImage?.FileName?.S; //get file name from the DynamoDB stream 
 
-    if (snsMessage.Records) {
-      console.log("Record body ", JSON.stringify(snsMessage));
-      for (const messageRecord of snsMessage.Records) {
-        const s3e = messageRecord.s3;
-        const srcBucket = s3e.bucket.name;
-        // Object key may have spaces or unicode non-ASCII characters.
-        const srcKey = decodeURIComponent(s3e.object.key.replace(/\+/g, " "));
+      try {
+        const emailParams = sendEmailParams({
+          name: "The Photo Album",
+          email: SES_EMAIL_FROM,
+          message: `We have received your uploaded Image. The URL is s3://${BUCKET_NAME}/${fileName}`,
+        });
 
-
-        try {
-          if (!srcKey.endsWith(".jpeg") && !srcKey.endsWith(".png")) {
-            console.error(`Invalid file type for file: ${srcKey}`);
-            throw new Error("Unsupported file type");
-          }
-          const { name, email, message }: ContactDetails = {
-            name: "The Photo Album",
-            email: SES_EMAIL_FROM,
-            message: `We received your Image. Its URL is s3://${srcBucket}/${srcKey}`,
-          };
-          const params = sendEmailParams({ name, email, message });
-          await client.send(new SendEmailCommand(params));
-        } catch (error: unknown) {
-          console.log("ERROR is: ", error);
-          // return;
-        }
+        await client.send(new SendEmailCommand(emailParams));
+        console.log(`The confirmation email was sent successfully for file: ${fileName}`);
+      } catch (error) {
+        console.error("Error while sending the confirmation email: ", error);
       }
     }
   }
@@ -98,7 +90,7 @@ function getHtmlContent({ name, email, message }: ContactDetails) {
 }
 
  // For demo purposes - not used here.
-function getTextContent({ name, email, message }: ContactDetails) {
+ function getTextContent({ name, email, message }: ContactDetails) {
   return `
     Received an Email. 📬
     Sent from:

@@ -13,7 +13,7 @@ export const handler: SNSHandler = async (event) => {
 
     //check for valid metadata type
     if (!["Caption", "Date", "Photographer"].includes(metadataType)) {
-      console.error(`Invalid metadata type: ${metadataType}`);
+      console.error(`Invalid metadata type: ${metadataType}, please use Caption, Date, or Photographer`);
       continue;
     }
 
@@ -27,7 +27,7 @@ export const handler: SNSHandler = async (event) => {
           ExpressionAttributeValues: { ":value": message.value },
         })
       );
-      console.log(`success, metadata was updated for ${message.id}`);
+      console.log(`success, metadata was updated for ${message.id} with ${metadataType}: ${message.value}`);
     } catch (error) {
       console.error(`Error updating metadata for ${message.id}:`, error);
     }

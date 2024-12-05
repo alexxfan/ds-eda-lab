@@ -9,7 +9,7 @@ import {
 } from "@aws-sdk/client-s3";
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, PutCommand, DeleteCommand } from "@aws-sdk/lib-dynamodb";
 
 const ddbDocClient = DynamoDBDocumentClient.from(
   new DynamoDBClient({ region: "eu-west-1" })
@@ -24,36 +24,45 @@ export const handler: SQSHandler = async (event) => {
     const snsMessage = JSON.parse(recordBody.Message); // Parse SNS message
 
     if (snsMessage.Records) {
-      console.log("Record body ", JSON.stringify(snsMessage));
       for (const messageRecord of snsMessage.Records) {
         const s3e = messageRecord.s3;
         const srcBucket = s3e.bucket.name;
         const srcKey = decodeURIComponent(s3e.object.key.replace(/\+/g, " "));
+        const eventName = messageRecord.eventName;
 
         try {
-          if (!srcKey.endsWith(".jpeg") && !srcKey.endsWith(".png")) {
-            console.error(`Unsupported file type: ${srcKey}`);
-            throw new Error("Unsupported file type"); 
+          if (eventName === "ObjectCreated:Put") {
+            console.log(`Processing ObjectCreated for: ${srcKey}`);
+            
+            if (!srcKey.endsWith(".jpeg") && !srcKey.endsWith(".png")) {
+              console.error(`Unsupported file type: ${srcKey} , please upload a JPEG or PNG file.`);
+              throw new Error("Unsupported file type");
+            }
+
+            //add item to imagetable
+            await ddbDocClient.send(
+              new PutCommand({
+                TableName: "ImageTable",
+                Item: {
+                  FileName: srcKey, //primary key
+                },
+              })
+            );
+            console.log(`Image ${srcKey} successfully added to ImageTable.`);
+          } else if (eventName === "ObjectRemoved:Delete") {
+            console.log(`Processing ObjectDeleted for: ${srcKey}`);
+
+            //delete item from imagetable
+            await ddbDocClient.send(
+              new DeleteCommand({
+                TableName: "ImageTable",
+                Key: { FileName: srcKey },
+              })
+            );
+            console.log(`Image ${srcKey} has successfully been deleted from ImageTable.`);
           }
-
-          const params: GetObjectCommandInput = {
-            Bucket: srcBucket,
-            Key: srcKey,
-          };
-          await s3.send(new GetObjectCommand(params));
-          console.log(`File downloaded.`);
-
-          await ddbDocClient.send(
-            new PutCommand({
-              TableName: "ImageTable",
-              Item: {
-                FileName: srcKey, //primary key
-              },
-            })
-          );
-          console.log(`File ${srcKey} successfully added to ImageTable.`);
         } catch (error) {
-          console.error(`Error processing file ${srcKey}:`, error);
+          console.error(`Error processing image ${srcKey}:`, error);
           throw error;
         }
       }

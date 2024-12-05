@@ -10,9 +10,15 @@ import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import { Duration, RemovalPolicy } from "aws-cdk-lib";
+import { StreamViewType } from "aws-cdk-lib/aws-dynamodb";
+import {  DynamoEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
+import { StartingPosition } from "aws-cdk-lib/aws-lambda";
+import { SES_EMAIL_FROM, SES_EMAIL_TO, SES_REGION } from "../env";
+
 
 
 import { Construct } from "constructs";
+import { SES } from "@aws-sdk/client-ses";
 // import * as sqs from 'aws-cdk-lib/aws-sqs';
 
 export class EDAAppStack extends cdk.Stack {
@@ -29,7 +35,8 @@ export class EDAAppStack extends cdk.Stack {
       partitionKey: { name: "FileName", type: dynamodb.AttributeType.STRING },
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      tableName: "ImageTable"
+      tableName: "ImageTable",
+      stream: dynamodb.StreamViewType.NEW_IMAGE
     });
     
 
@@ -77,11 +84,20 @@ export class EDAAppStack extends cdk.Stack {
     );
 
     const mailerFn = new lambdanode.NodejsFunction(this, "mailer-function", {
-      runtime: lambda.Runtime.NODEJS_16_X,
+      runtime: lambda.Runtime.NODEJS_18_X,
       memorySize: 1024,
       timeout: cdk.Duration.seconds(3),
       entry: `${__dirname}/../lambdas/confirmationMailer.ts`,
+      environment: {
+        EMAIL_TO: SES_EMAIL_TO,
+        EMAIL_FROM: SES_EMAIL_FROM,
+        REGION: SES_REGION,
+        BUCKET_NAME: imagesBucket.bucketName,
+      },
     });
+    
+
+    
 
     const rejectionMailerFn = new lambdanode.NodejsFunction(this, "RejectionMailerFn", {
       runtime: lambda.Runtime.NODEJS_18_X,
@@ -109,6 +125,11 @@ export class EDAAppStack extends cdk.Stack {
       new s3n.SnsDestination(newImageTopic)
     );
 
+    imagesBucket.addEventNotification(
+      s3.EventType.OBJECT_REMOVED_DELETE,
+      new s3n.SnsDestination(newImageTopic)
+    );
+
     newImageTopic.addSubscription(
       new subs.SqsSubscription(imageProcessQueue)
     );
@@ -124,6 +145,13 @@ export class EDAAppStack extends cdk.Stack {
         },
       })
     );
+
+    mailerFn.addEventSource(
+      new DynamoEventSource(imageTable, {
+        startingPosition: StartingPosition.LATEST,
+      })
+    );
+    
 
 
     // SQS --> Lambda
@@ -142,7 +170,6 @@ export class EDAAppStack extends cdk.Stack {
       batchSize: 5,
       maxBatchingWindow: cdk.Duration.seconds(5),
     });
-
 
     processImageFn.addEventSource(newImageEventSource);
     mailerFn.addEventSource(newImageMailEventSource);
