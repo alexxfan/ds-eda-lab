@@ -26,7 +26,6 @@ export const handler: SQSHandler = async (event) => {
     if (snsMessage.Records) {
       for (const messageRecord of snsMessage.Records) {
         const s3e = messageRecord.s3;
-        const srcBucket = s3e.bucket.name;
         const srcKey = decodeURIComponent(s3e.object.key.replace(/\+/g, " "));
         const eventName = messageRecord.eventName;
 

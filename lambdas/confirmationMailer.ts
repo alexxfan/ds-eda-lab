@@ -29,7 +29,7 @@ export const handler: DynamoDBStreamHandler = async (event) => {
 
   for (const record of event.Records) {
     if (record.eventName === "INSERT") { 
-      const newImage = record.dynamodb?.NewImage; //get  image from DynamoDB stream
+      const newImage = record.dynamodb?.NewImage; //get image from DynamoDB stream
       const fileName = newImage?.FileName?.S; //get file name from the DynamoDB stream 
 
       try {
